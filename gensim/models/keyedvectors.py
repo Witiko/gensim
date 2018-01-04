@@ -559,6 +559,91 @@ class EuclideanKeyedVectors(KeyedVectorsBase):
         """
         return self.most_similar(positive=[vector], topn=topn, restrict_vocab=restrict_vocab)
 
+    def softcossim(self, document1, document2, threshold=0.0, exponent=2.0):
+        """
+        Compute the Soft Cosine Similarity between two documents. When using this
+        code, please consider citing the following papers:
+
+        .. Grigori Sidorov et al., "Soft Similarity and Soft Cosine Measure: Similarity of Features
+           in Vector Space Model".
+        .. Delphine Charlet and Geraldine Damnati, "SimBow at SemEval-2017 Task 3: Soft-Cosine
+           Semantic Similarity between Questions for Community Question Answering".
+
+        `threshold` and `exponent` are parameters for constructing the soft cosine similarity matrix
+        for word2vec. Consult the paper by Delphine and Damnati for further information.
+
+        Example:
+            >>> # Train word2vec model.
+            >>> model = Word2Vec(sentences)
+
+            >>> # Some sentences to test.
+            >>> sentence_obama = 'Obama speaks to the media in Illinois'.lower().split()
+            >>> sentence_president = 'The president greets the press in Chicago'.lower().split()
+
+            >>> # Remove their stopwords.
+            >>> from nltk.corpus import stopwords
+            >>> stopwords = nltk.corpus.stopwords.words('english')
+            >>> sentence_obama = [w for w in sentence_obama if w not in stopwords]
+            >>> sentence_president = [w for w in sentence_president if w not in stopwords]
+
+            >>> # Compute SCS.
+            >>> similarity = model.softcossim(sentence_obama, sentence_president)
+        """
+
+        # Remove out-of-vocabulary words.
+        len_pre_oov1 = len(document1)
+        len_pre_oov2 = len(document2)
+        document1 = [token for token in document1 if token in self]
+        document2 = [token for token in document2 if token in self]
+        diff1 = len_pre_oov1 - len(document1)
+        diff2 = len_pre_oov2 - len(document2)
+        if diff1 > 0 or diff2 > 0:
+            logger.info('Removed %d and %d OOV words from document 1 and 2 (respectively).', diff1, diff2)
+
+        if len(document1) == 0 or len(document2) == 0:
+            return 0.0
+
+        dictionary = Dictionary(documents=[document1, document2])
+        vocab_len = len(dictionary)
+
+        if vocab_len == 1:
+            # Both documents are composed by a single unique token
+            return 1.0
+
+        # Sets for faster look-up.
+        docset1 = set(document1)
+        docset2 = set(document2)
+
+        # Compute similarity matrix.
+        similarity_matrix = np.identity(vocab_len, dtype=double)
+        for i, t1 in dictionary.items():
+            for j, t2 in dictionary.items():
+                if i == j:
+                    continue
+                # Compute cosine similarity between word vectors.
+                similarity = self.similarity(t1, t2)
+                if similarity > threshold:
+                    similarity_matrix[i, j] = similarity**exponent
+
+        def bow(document):
+            d = zeros(vocab_len, dtype=double)
+            bow = dictionary.doc2bow(document)  # Word frequencies.
+            doc_len = len(document)
+            for idx, freq in bow:
+                d[idx] = freq
+            return d
+
+        # Compute BOW representation of documents.
+        d1 = bow(document1)
+        d2 = bow(document2)
+
+        # Compute SCS.
+        result = d1.dot(similarity_matrix).dot(d2)
+        d1len = sqrt(d1.dot(similarity_matrix).dot(d1))
+        d2len = sqrt(d2.dot(similarity_matrix).dot(d2))
+        result /= d1len * d2len
+        return result
+
     def wmdistance(self, document1, document2):
         """
         Compute the Word Mover's Distance between two documents. When using this
