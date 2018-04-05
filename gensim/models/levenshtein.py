@@ -51,8 +51,11 @@ def levsim(alpha, beta, t1, t2):
     Answering", 2017 <http://www.aclweb.org/anthology/S/S17/S17-2051.pdf>`__.
 
     """
-    t1 = t1.decode()  # make sure both strings are in unicode
-    t2 = t2.decode()
+    if isinstance(t1, unicode):
+        t1 = t1.decode()  # make sure both strings are in unicode
+    if isinstance(t2, unicode):
+        t2 = t2.decode()
+    assert isinstance(t1, unicode) and isinstance(t2, unicode)
     return alpha * (1 - distance(t1, t2) * 1.0 / max(len(t1), len(t2)))**beta
 
 
