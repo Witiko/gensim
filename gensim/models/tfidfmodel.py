@@ -47,7 +47,8 @@ def resolve_weights(smartirs):
             * `l` - logarithm,
             * `a` - augmented,
             * `b` - boolean,
-            * `L` - log average.
+            * `L` - log average,
+            * `d` - double logarithm.
     global_letter : str
         Document frequency weighting, one of:
             * `n` - none,
@@ -70,8 +71,8 @@ def resolve_weights(smartirs):
 
     w_tf, w_df, w_n = smartirs
 
-    if w_tf not in 'nlabL':
-        raise ValueError("Expected term frequency weight to be one of 'nlabL', except got {}".format(w_tf))
+    if w_tf not in 'nlabLd':
+        raise ValueError("Expected term frequency weight to be one of 'nlabLd', except got {}".format(w_tf))
 
     if w_df not in 'ntp':
         raise ValueError("Expected inverse document frequency weight to be one of 'ntp', except got {}".format(w_df))
@@ -137,7 +138,7 @@ def smartirs_wlocal(tf, local_scheme):
     ----------
     tf : int
         Term frequency.
-    local : {'n', 'l', 'a', 'b', 'L'}
+    local : {'n', 'l', 'a', 'b', 'L', 'd'}
         Local transformation scheme.
 
     Returns
@@ -156,6 +157,8 @@ def smartirs_wlocal(tf, local_scheme):
         return tf.astype('bool').astype('int')
     elif local_scheme == "L":
         return (1 + np.log2(tf)) / (1 + np.log2(tf.mean(axis=0)))
+    elif local_scheme == "d":
+        return 1 + np.log2(1 + np.log2(tf))
 
 
 def smartirs_wglobal(docfreq, totaldocs, global_scheme):
