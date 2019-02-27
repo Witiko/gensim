@@ -146,33 +146,36 @@ class SparseTermSimilarityMatrix(SaveLoad):
 
     Parameters
     ----------
-    source : :class:`~gensim.similarities.termsim.TermSimilarityIndex` or :class:`scipy.sparse.spmatrix`
+    source : {gensim.similarities.termsim.TermSimilarityIndex, scipy.sparse.spmatrix}
         The source of the term similarity. Either a term similarity index that will be used for
         building the term similarity matrix, or an existing sparse term similarity matrix that will
-        be encapsulated and stored in the matrix attribute.
-    dictionary : :class:`~gensim.corpora.dictionary.Dictionary` or None, optional
+        be encapsulated and stored in the matrix attribute. When a matrix is specified as the
+        source, any other parameters will be ignored.
+    dictionary : {gensim.corpora.dictionary.Dictionary, None}, optional
         A dictionary that specifies a mapping between terms and the indices of rows and columns
-        of the resulting term similarity matrix. The dictionary may only be `None` when `source` is
-        a :class:`scipy.sparse.spmatrix`.
-    tfidf : :class:`gensim.models.tfidfmodel.TfidfModel` or None, optional
+        of the resulting term similarity matrix. The dictionary may only be None when the source
+        is a matrix.
+    tfidf : {gensim.models.tfidfmodel.TfidfModel, None}, optional
         A model that specifies the relative importance of the terms in the dictionary. The columns
         of the term similarity matrix will be build in a decreasing order of importance of
         terms, or in the order of term identifiers if None.
     symmetric : bool, optional
-        Whether the symmetry of the term similarity matrix will be enforced. This parameter only has
-        an effect when `source` is a :class:`scipy.sparse.spmatrix`. Positive definiteness is a
-        necessary precondition if you later wish to derive a change-of-basis matrix from the term
-        similarity matrix using Cholesky factorization.
+        Whether the symmetry of the term similarity matrix will be enforced.
+    dominant : bool, optional
+        Whether the strict column diagonal dominance of the term similarity matrix will be enforced.
     positive_definite: bool, optional
         Whether the positive definiteness of the term similarity matrix will be enforced through
-        strict column diagonal dominance. Positive definiteness is a necessary precondition if you
-        later wish to derive a change-of-basis matrix from the term similarity matrix using Cholesky
-        factorization.
+        symmetry and strict column diagonal dominance. Positive definiteness is a necessary
+        precondition for Cholesky factorization. If True, then this parameter overrides the
+        ``symmetric`` and ``dominant`` parameters, forcing the matrix to be both
+        symmetric and strictly diagonally dominant.
     nonzero_limit : {int, None}, optional
         The maximum number of non-zero elements outside the diagonal in a single column of the
-        sparse term similarity matrix. If None, then no limit will be imposed.
+        sparse term similarity matrix. If None, then no limit will be imposed. Note that this may
+        result in a very large matrix unless a large threshold is applied or strict diagonal
+        dominance enforced.
     dtype : numpy.dtype, optional
-        Data-type of the sparse term similarity matrix.
+        The data type of the sparse term similarity matrix.
 
     Attributes
     ----------
@@ -181,8 +184,8 @@ class SparseTermSimilarityMatrix(SaveLoad):
     """
     PROGRESS_MESSAGE_PERIOD = 1000  # how many columns are processed between progress messages
 
-    def __init__(self, source, dictionary=None, tfidf=None, symmetric=True, positive_definite=False, nonzero_limit=100,
-                 dtype=np.float32):
+    def __init__(self, source, dictionary=None, tfidf=None, symmetric=True, dominant=False,
+                 positive_definite=False, nonzero_limit=100, dtype=np.float32):
         if sparse.issparse(source):
             self.matrix = source.tocsc()  # encapsulate the passed sparse matrix
             return
@@ -193,6 +196,10 @@ class SparseTermSimilarityMatrix(SaveLoad):
         matrix_order = len(dictionary)
 
         logger.info("constructing a sparse term similarity matrix using %s", index)
+
+        if positive_definite:
+            symmetric = True
+            dominant = True
 
         if nonzero_limit is None:
             nonzero_limit = matrix_order
@@ -242,11 +249,11 @@ class SparseTermSimilarityMatrix(SaveLoad):
                     key=lambda x: (lambda term_index, _: (tfidf.idfs[term_index], -term_index))(*x), reverse=True)
 
             for row_number, (t2_index, similarity) in zip(range(num_rows), rows):
-                if positive_definite and column_sum[t1_index] + abs(similarity) >= 1.0:
+                if dominant and column_sum[t1_index] + abs(similarity) >= 1.0:
                     break
                 if symmetric:
                     if column_nonzero[t2_index] <= nonzero_limit \
-                            and (not positive_definite or column_sum[t2_index] + abs(similarity) < 1.0) \
+                            and (not dominant or column_sum[t2_index] + abs(similarity) < 1.0) \
                             and not (t1_index, t2_index) in matrix:
                         matrix[t1_index, t2_index] = similarity
                         column_nonzero[t1_index] += 1
