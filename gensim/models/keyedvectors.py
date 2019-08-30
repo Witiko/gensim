@@ -998,7 +998,7 @@ class WordEmbeddingsKeyedVectors(BaseKeyedVectors):
             logger.info("%s: %.1f%% (%i/%i)", section['section'], 100.0 * score, correct, correct + incorrect)
             return score
 
-    def evaluate_word_analogies(self, analogies, restrict_vocab=300000, case_insensitive=True, dummy4unknown=False):
+    def evaluate_word_analogies(self, analogies, case_insensitive=True, dummy4unknown=False):
         """Compute performance of the model on an analogy test set.
 
         This is modern variant of :meth:`~gensim.models.keyedvectors.WordEmbeddingsKeyedVectors.accuracy`, see
@@ -1015,10 +1015,6 @@ class WordEmbeddingsKeyedVectors(BaseKeyedVectors):
         analogies : str
             Path to file, where lines are 4-tuples of words, split into sections by ": SECTION NAME" lines.
             See `gensim/test/test_data/questions-words.txt` as example.
-        restrict_vocab : int, optional
-            Ignore all 4-tuples containing a word not in the first `restrict_vocab` words.
-            This may be meaningful if you've sorted the model vocabulary by descending frequency (which is standard
-            in modern word embedding models).
         case_insensitive : bool, optional
             If True - convert all words to their uppercase form before evaluating the performance.
             Useful to handle case-mismatch between training tokens and words in the test set.
@@ -1038,10 +1034,10 @@ class WordEmbeddingsKeyedVectors(BaseKeyedVectors):
             keys 'correct' and 'incorrect'.
 
         """
-        ok_vocab = [(w, self.vocab[w]) for w in self.index2word[:restrict_vocab]]
+        ok_vocab = [(w, self.vocab[w]) for w in self.index2word]
         ok_vocab = {w.upper(): v for w, v in reversed(ok_vocab)} if case_insensitive else dict(ok_vocab)
         oov = 0
-        logger.info("Evaluating word analogies for top %i words in the model on %s", restrict_vocab, analogies)
+        logger.info("Evaluating word analogies for words in the model on %s", analogies)
         sections, section = [], None
         quadruplets_no = 0
         for line_no, line in enumerate(utils.smart_open(analogies)):
@@ -1076,9 +1072,8 @@ class WordEmbeddingsKeyedVectors(BaseKeyedVectors):
                 self.vocab = ok_vocab
                 ignore = {a, b, c}  # input words to be ignored
                 predicted = None
-                # find the most likely prediction using 3CosAdd (vector offset) method
-                # TODO: implement 3CosMul and set-based methods for solving analogies
-                sims = self.most_similar(positive=[b, c], negative=[a], topn=5, restrict_vocab=restrict_vocab)
+                # find the most likely prediction using 3CosMul method
+                sims = self.most_similar_cosmul(positive=[b, c], negative=[a], topn=5)
                 self.vocab = original_vocab
                 for element in sims:
                     predicted = element[0].upper() if case_insensitive else element[0]
