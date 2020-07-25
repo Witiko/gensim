@@ -242,22 +242,27 @@ cdef void fasttext_fast_sentence_cbow_neg(FastTextConfig *c, int i, int j, int k
 
     cdef long long row2
     cdef unsigned long long modulo = 281474976710655ULL
-    cdef REAL_t f, g, count, inv_count = 1.0, label, f_dot
+    cdef REAL_t f, g, count, inv_count = 1.0, label, f_dot, positional_weight, lock_positional_weight
     cdef np.uint32_t target_index, word_index
-    cdef int d, m
+    cdef int d, m, n, o
 
+    positional_weight = ONEF
     word_index = c.indexes[i]
 
     memset(c.neu1, 0, c.size * cython.sizeof(REAL_t))
     count = <REAL_t>0.0
+    n = j - i + c.window
     for m in range(j, k):
         if m == i:
             continue
+        if c.pdw:
+            positional_weight = c.syn0_positions[n]
         count += ONEF
-        our_saxpy(&c.size, &ONEF, &c.syn0_vocab[c.indexes[m] * c.size], &ONE, c.neu1, &ONE)
-        for d in range(c.subwords_idx_len[m]):
+        our_saxpy(&c.size, &positional_weight, &c.syn0_vocab[c.indexes[m] * c.size], &ONE, c.neu1, &ONE)
+        for o in range(c.subwords_idx_len[m]):
             count += ONEF
-            our_saxpy(&c.size, &ONEF, &c.syn0_ngrams[c.subwords_idx[m][d] * c.size], &ONE, c.neu1, &ONE)
+            our_saxpy(&c.size, &positional_weight, &c.syn0_ngrams[c.subwords_idx[m][o] * c.size], &ONE, c.neu1, &ONE)
+        n += 1
 
     if count > (<REAL_t>0.5):
         inv_count = ONEF / count
@@ -293,16 +298,30 @@ cdef void fasttext_fast_sentence_cbow_neg(FastTextConfig *c, int i, int j, int k
     if not c.cbow_mean:  # divide error over summed window vectors
         sscal(&c.size, &inv_count, c.work, &ONE)
 
-    for m in range(j,k):
+    if c.pdw:
+        memset(c.neu1, 0, 2 * c.window * cython.sizeof(REAL_t))
+
+    n = j - i + c.window
+    for m in range(j, k):
         if m == i:
             continue
-        our_saxpy(
-            &c.size, &c.vocab_lockf[c.indexes[m] % c.vocab_lockf_len], c.work, &ONE,
-            &c.syn0_vocab[c.indexes[m]*c.size], &ONE)
-        for d in range(c.subwords_idx_len[m]):
-            our_saxpy(
-                &c.size, &c.ngrams_lockf[c.subwords_idx[m][d] % c.ngrams_lockf_len], c.work, &ONE,
-                &c.syn0_ngrams[c.subwords_idx[m][d]*c.size], &ONE)
+        if c.pdw:
+            positional_weight = c.syn0_positions[n]
+            f_dot = our_dot(&c.size, c.work, &ONE, &c.syn0_vocab[c.indexes[m] * c.size], &ONE)
+            for o in range(c.subwords_idx_len[m]):
+                f_dot += our_dot(&c.size, c.work, &ONE, &c.syn0_ngrams[c.subwords_idx[m][o] * c.size], &ONE)
+            c.neu1[n] = f_dot
+        lock_positional_weight = c.vocab_lockf[c.indexes[m] % c.vocab_lockf_len] * positional_weight
+        our_saxpy(&c.size, &lock_positional_weight, c.work, &ONE, &c.syn0_vocab[c.indexes[m] * c.size], &ONE)
+        for o in range(c.subwords_idx_len[m]):
+            lock_positional_weight = c.ngrams_lockf[c.subwords_idx[m][o] % c.ngrams_lockf_len] * positional_weight
+            our_saxpy(&c.size, &lock_positional_weight, c.work, &ONE, &c.syn0_ngrams[c.subwords_idx[m][o] * c.size], &ONE)
+        n += 1
+
+    if c.pdw:
+        n = 2 * c.window
+        inv_count = ONEF / c.size
+        our_saxpy(&n, &inv_count, c.neu1, &ONE, c.syn0_positions, &ONE)
 
 
 cdef void fasttext_fast_sentence_cbow_hs(FastTextConfig *c, int i, int j, int k) nogil:
@@ -398,9 +417,12 @@ cdef void init_ft_config(FastTextConfig *c, model, alpha, _work, _neu1):
     c.cbow_mean = model.cbow_mean
     c.window = model.window
     c.workers = model.workers
+    c.pdw = model.position_dependent_weights
 
     c.syn0_vocab = <REAL_t *>(np.PyArray_DATA(model.wv.vectors_vocab))
     c.syn0_ngrams = <REAL_t *>(np.PyArray_DATA(model.wv.vectors_ngrams))
+    if c.pdw:
+        c.syn0_positions = <REAL_t *>(np.PyArray_DATA(model.wv.vectors_positions))
 
     # EXPERIMENTAL lockf scaled suppression/enablement of training
     c.vocab_lockf = <REAL_t *>(np.PyArray_DATA(model.wv.vectors_vocab_lockf))
