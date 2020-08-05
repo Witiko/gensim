@@ -312,7 +312,7 @@ class FastText(Word2Vec):
                  max_vocab_size=None, word_ngrams=1, sample=1e-3, seed=1, workers=3, min_alpha=0.0001,
                  negative=5, ns_exponent=0.75, cbow_mean=1, hashfxn=hash, epochs=5, null_word=0, min_n=3, max_n=6,
                  sorted_vocab=1, bucket=2000000, trim_rule=None, batch_words=MAX_WORDS_IN_BATCH, callbacks=(),
-                 max_final_vocab=None):
+                 max_final_vocab=None, hyphenation=None):
         """Train, use and evaluate word representations learned using the method
         described in `Enriching Word Vectors with Subword Information <https://arxiv.org/abs/1607.04606>`_,
         aka FastText.
@@ -421,6 +421,10 @@ class FastText(Word2Vec):
             ``min_count```.  If the specified ``min_count`` is more than the
             automatically calculated ``min_count``, the former will be used.
             Set to ``None`` if not required.
+        hyphenation : str or None, optional
+            Specifies the language of hyphenation patterns that will be used to limit n-grams
+            to those whose length falls within ``min_n`` and ``max_n``, and that start
+            and end at hyphenation points.
 
         Examples
         --------
@@ -455,8 +459,13 @@ class FastText(Word2Vec):
         if max_n < min_n:
             # with no eligible char-ngram lengths, no buckets need be allocated
             bucket = 0
+        if hyphenation is not None:
+            import pyphen
+            if hyphenation not in pyphen.LANGUAGES:
+                raise NotImplementedError('Hyphenation patterns for language "%s" are unavailable' % hyphenation)
 
-        self.wv = FastTextKeyedVectors(vector_size, min_n, max_n, bucket)
+        self.hyphenation = hyphenation
+        self.wv = FastTextKeyedVectors(vector_size, min_n, max_n, bucket, hyphenation)
         self.wv.bucket = bucket
 
         super(FastText, self).__init__(
@@ -611,7 +620,7 @@ class FastText(Word2Vec):
             report['syn0_ngrams'] = self.wv.bucket * vec_size
             num_ngrams = 0
             for word in self.wv.key_to_index:
-                hashes = ft_ngram_hashes(word, self.wv.min_n, self.wv.max_n, self.wv.bucket)
+                hashes = ft_ngram_hashes(word, self.wv.min_n, self.wv.max_n, self.wv.bucket, self.hyphenation)
                 num_ngrams += len(hashes)
             # A list (64 bytes) with one np.array (100 bytes) per key, with a total of
             # num_ngrams uint32s (4 bytes) amongst them
@@ -1141,7 +1150,7 @@ def save_facebook_model(model, path, encoding="utf-8", lr_update_rate=100, word_
 
 
 class FastTextKeyedVectors(KeyedVectors):
-    def __init__(self, vector_size, min_n, max_n, bucket):
+    def __init__(self, vector_size, min_n, max_n, bucket, hyphenation):
         """Vectors and vocab for :class:`~gensim.models.fasttext.FastText`.
 
         Implements significant parts of the FastText algorithm.  For example,
@@ -1163,6 +1172,10 @@ class FastTextKeyedVectors(KeyedVectors):
             The maximum number of characters in an ngram
         bucket : int
             The number of buckets.
+        hyphenation : str or None, optional
+            Specifies the language of hyphenation patterns that will be used to limit n-grams
+            to those whose length falls within ``min_n`` and ``max_n``, and that start
+            and end at hyphenation points.
 
         Attributes
         ----------
@@ -1179,6 +1192,10 @@ class FastTextKeyedVectors(KeyedVectors):
             Columns correspond to vector dimensions.
         buckets_word : list of np.array
             For each key (by its index), report bucket slots their subwords map to.
+        hyphenation : str or None, optional
+            Specifies the language of hyphenation patterns that will be used to limit n-grams
+            to those whose length falls within ``min_n`` and ``max_n``, and that start
+            and end at hyphenation points.
 
         When used in training, FastTextKeyedVectors may be decorated with
         extra attributes that closely associate with its core attributes,
@@ -1194,6 +1211,7 @@ class FastTextKeyedVectors(KeyedVectors):
         self.max_n = max_n
         self.bucket = bucket  # count of buckets, fka num_ngram_vectors
         self.compatible_hash = True
+        self.hyphenation = hyphenation
 
     @classmethod
     def load(cls, fname_or_handle, **kwargs):
@@ -1286,7 +1304,7 @@ class FastTextKeyedVectors(KeyedVectors):
         else:
             word_vec = np.zeros(self.vectors_ngrams.shape[1], dtype=np.float32)
             ngram_weights = self.vectors_ngrams
-            ngram_hashes = ft_ngram_hashes(word, self.min_n, self.max_n, self.bucket)
+            ngram_hashes = ft_ngram_hashes(word, self.min_n, self.max_n, self.bucket, self.hyphenation)
             if len(ngram_hashes) == 0:
                 #
                 # If it is impossible to extract _any_ ngrams from the input
@@ -1424,7 +1442,7 @@ class FastTextKeyedVectors(KeyedVectors):
 
         for i, word in enumerate(self.index_to_key):
             self.buckets_word[i] = np.array(
-                ft_ngram_hashes(word, self.min_n, self.max_n, self.bucket),
+                ft_ngram_hashes(word, self.min_n, self.max_n, self.bucket, self.hyphenation),
                 dtype=np.uint32,
            )
 
@@ -1537,7 +1555,7 @@ def _is_utf8_continue(b):
     return _byte_to_int(b) & _MB_MASK == _MB_START
 
 
-def ft_ngram_hashes(word, minn, maxn, num_buckets):
+def ft_ngram_hashes(word, minn, maxn, num_buckets, lang):
     """Calculate the ngrams of the word and hash them.
 
     Parameters
@@ -1550,13 +1568,28 @@ def ft_ngram_hashes(word, minn, maxn, num_buckets):
         Maximum ngram length
     num_buckets : int
         The number of buckets
+    lang : str or None
+        The language whose hyphenation patterns will be used
 
     Returns
     -------
         A list of hashes (integers), one per each detected ngram.
 
     """
-    encoded_ngrams = compute_ngrams_bytes(word, minn, maxn)
+    if lang is None:
+        encoded_ngrams = compute_ngrams_bytes(word, minn, maxn)
+    else:
+        import pyphen
+        encoded_ngrams = pyphen.Pyphen(lang=lang).inserted(word).split('-')
+        if len(encoded_ngrams) == 1:
+            encoded_ngrams = []
+        else:
+            encoded_ngrams[0] = f'<{encoded_ngrams[0]}'
+            encoded_ngrams[-1] = f'{encoded_ngrams[-1]}>'
+            encoded_ngrams = filter(lambda x: len(x) >= minn, encoded_ngrams)
+            encoded_ngrams = filter(lambda x: len(x) <= maxn, encoded_ngrams)
+            encoded_ngrams = map(lambda x: x.encode('utf8'), encoded_ngrams)
+            encoded_ngrams = list(encoded_ngrams)
     hashes = [ft_hash_bytes(n) % num_buckets for n in encoded_ngrams]
     return hashes
 
