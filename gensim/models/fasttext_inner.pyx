@@ -35,6 +35,7 @@ cimport numpy as np
 from libc.math cimport exp
 from libc.math cimport log
 from libc.string cimport memcpy, memset
+from libc.stdio cimport printf
 
 
 #
@@ -441,6 +442,13 @@ cdef void fasttext_fast_sentence_cbow_neg_pdw(FastTextConfig *c, int i, int j, i
                     &c.work[c.pdw_size], &ONE,
                     &c.syn0_ngrams[c.subwords_idx[m][o] * c.size + c.pdw_size], &ONE)
         inv_count = ONEF / count  # divide position vector update by the number of summed gradients
+        printf('p%d = [', n)
+        for o in range(5):
+            printf('%f, ', c.syn0_positions[n * c.pdw_size + o])
+        printf('...] + %f * [', inv_count)
+        for o in range(5):
+            printf('%f, ', c.neu1[o])
+        printf('...]\n')
         our_saxpy(&c.pdw_size, &inv_count, c.neu1, &ONE, &c.syn0_positions[n * c.pdw_size], &ONE)
         n += 1
 
