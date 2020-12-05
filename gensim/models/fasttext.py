@@ -1379,7 +1379,7 @@ class FastTextKeyedVectors(KeyedVectors):
         #    time because the vocab is not initialized at that stage.
         #
         if self.position_dependent_weights:
-            scale = sqrt(1.0 / sqrt(6.0) / self.vector_size)
+            scale = sqrt(1.0 / sqrt(3.0) / self.vector_size)
             kwargs = {'scale': scale, 'iterations': 1}
             self.vectors_vocab = matutils.normal_factor(vocab_shape, rand_obj, **kwargs)
             self.vectors_ngrams = matutils.normal_factor(ngrams_shape, rand_obj, **kwargs)
@@ -1486,7 +1486,7 @@ def _pad_random(m, new_rows, rand, normal_factor=False):
     _, columns = m.shape
     shape = (new_rows, columns)
     if normal_factor:
-        scale = sqrt(1.0 / sqrt(6.0) / columns)
+        scale = sqrt(1.0 / sqrt(3.0) / columns)
         suffix = matutils.normal_factor(shape, rand, scale=scale, iterations=1)
     else:
         low, high = -1.0 / columns, 1.0 / columns
