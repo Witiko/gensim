@@ -1422,7 +1422,7 @@ class MmWriter(object):
             self.fout.close()
 
 
-def normal_factor(size, rand_obj, loc=0.0, scale=1.0, k=2, iterations=30):
+def normal_factor(size, rand_obj, loc=0.0, scale=1.0, k=2, iterations=9):
     r"""Draw random samples from a k-factor of the normal distribution.
 
     The product of k independent k-factors is normally distributed. [Pinelis2018]_
@@ -1446,9 +1446,8 @@ def normal_factor(size, rand_obj, loc=0.0, scale=1.0, k=2, iterations=30):
     iterations : int, optional
         The formula of [Pinelis2018]_ contains a sum of a convergent infinite sequence. We approximate
         the sum by a finite sequence of its ``iterations`` initial elements. Increasing the number of
-        iterations improves accuracy at the expense of speed. Must be non-negative. Default is 30,
-        see the explanation in Notes. In practice, a smaller number of iterations may be sufficient.
-        The space complexity scales linearly with the number of iterations.
+        iterations improves accuracy at the expense of speed. Must be non-negative. Default is 9,
+        see the explanation in Notes. Space complexity scales linearly with the number of iterations.
 
     Returns
     -------
@@ -1463,9 +1462,8 @@ def normal_factor(size, rand_obj, loc=0.0, scale=1.0, k=2, iterations=30):
 
     Notes
     -----
-    The default size of the finite sequence in the equation has been set to 30. At this many iterations,
-    the zero hypothesis that the product of the random samples is normally distributed cannot be rejected
-    at the significance level :math:`\alpha=0.05` by the Kolmogorov-Smirnov two-tailed test of normality.
+    The default size of the finite sequence in the equation has been set to 9. At this many iterations,
+    the variance of the product of two independent 2-factors is more than 95% of the requested variance.
 
     References
     ----------
@@ -1474,7 +1472,7 @@ def normal_factor(size, rand_obj, loc=0.0, scale=1.0, k=2, iterations=30):
 
     """
     if loc < 0.0:
-        raise ValueError('Scale must be non-negative. If you want to produce a normal distribution '
+        raise ValueError('Mean must be non-negative. If you want to produce a normal distribution '
                          'with a negative mean, you should negate the first k-factor.')
     if scale < 0.0:
         raise ValueError('Standard deviation must be non-negative')

@@ -1380,10 +1380,9 @@ class FastTextKeyedVectors(KeyedVectors):
         #
         if self.position_dependent_weights:
             scale = sqrt(1.0 / sqrt(3.0) / self.vector_size)
-            kwargs = {'scale': scale, 'iterations': 1}
-            self.vectors_vocab = matutils.normal_factor(vocab_shape, rand_obj, **kwargs)
-            self.vectors_ngrams = matutils.normal_factor(ngrams_shape, rand_obj, **kwargs)
-            self.vectors_positions = matutils.normal_factor(positions_shape, rand_obj, **kwargs)
+            self.vectors_vocab = matutils.normal_factor(vocab_shape, rand_obj, scale=scale)
+            self.vectors_ngrams = matutils.normal_factor(ngrams_shape, rand_obj, scale=scale)
+            self.vectors_positions = matutils.normal_factor(positions_shape, rand_obj, scale=scale)
             self.vectors_positions = self.vectors_positions.astype(REAL)
         else:
             lo, hi = -1.0 / self.vector_size, 1.0 / self.vector_size
@@ -1487,7 +1486,7 @@ def _pad_random(m, new_rows, rand, normal_factor=False):
     shape = (new_rows, columns)
     if normal_factor:
         scale = sqrt(1.0 / sqrt(3.0) / columns)
-        suffix = matutils.normal_factor(shape, rand, scale=scale, iterations=1)
+        suffix = matutils.normal_factor(shape, rand, scale=scale)
     else:
         low, high = -1.0 / columns, 1.0 / columns
         suffix = rand.uniform(low, high, shape)
