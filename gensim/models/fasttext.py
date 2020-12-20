@@ -484,8 +484,8 @@ class FastText(Word2Vec):
             bucket = 0
 
         self.wv = FastTextKeyedVectors(
-            vector_size, position_dependent_weights, position_dependent_vector_size, min_n, max_n,
-            bucket)
+            vector_size, self.position_dependent_weights, position_dependent_vector_size,
+            min_n, max_n, bucket)
         self.wv.bucket = bucket
 
         super(FastText, self).__init__(
@@ -1366,10 +1366,6 @@ class FastTextKeyedVectors(KeyedVectors):
 
         rand_obj = np.random.default_rng(seed=seed)  # use new instance of numpy's recommended generator/algorithm
 
-        vocab_shape = (len(self), self.vector_size)
-        ngrams_shape = (self.bucket, self.vector_size)
-        positions_shape = (2 * window, self.position_dependent_vector_size)
-        #
         # We could have initialized vectors_ngrams at construction time, but we
         # do it here for two reasons:
         #
@@ -1379,12 +1375,35 @@ class FastTextKeyedVectors(KeyedVectors):
         #    time because the vocab is not initialized at that stage.
         #
         if self.position_dependent_weights:
+            vocab_shape = (len(self), self.position_dependent_vector_size)
+            ngrams_shape = (self.bucket, self.position_dependent_vector_size)
+            positions_shape = (2 * window, self.position_dependent_vector_size)
             scale = sqrt(1.0 / sqrt(3.0) / self.vector_size)
-            self.vectors_vocab = matutils.normal_factor(vocab_shape, rand_obj, scale=scale)
-            self.vectors_ngrams = matutils.normal_factor(ngrams_shape, rand_obj, scale=scale)
             self.vectors_positions = matutils.normal_factor(positions_shape, rand_obj, scale=scale)
             self.vectors_positions = self.vectors_positions.astype(REAL)
+            self.vectors_vocab = matutils.normal_factor(vocab_shape, rand_obj, scale=scale)
+            self.vectors_ngrams = matutils.normal_factor(ngrams_shape, rand_obj, scale=scale)
+            if self.vector_size > self.position_dependent_vector_size:
+                vocab_shape = (len(self), self.vector_size - self.position_dependent_vector_size)
+                ngrams_shape = (self.bucket, self.vector_size - self.position_dependent_vector_size)
+                lo, hi = -1.0 / self.vector_size, 1.0 / self.vector_size
+                self.vectors_vocab = np.concatenate(
+                    (
+                        self.vectors_vocab,
+                        rand_obj.uniform(lo, hi, vocab_shape).astype(REAL),
+                    ),
+                    axis=-1,
+                )
+                self.vectors_ngrams = np.concatenate(
+                    (
+                        self.vectors_ngrams,
+                        rand_obj.uniform(lo, hi, ngrams_shape).astype(REAL),
+                    ),
+                    axis=-1,
+                )
         else:
+            vocab_shape = (len(self), self.vector_size)
+            ngrams_shape = (self.bucket, self.vector_size)
             lo, hi = -1.0 / self.vector_size, 1.0 / self.vector_size
             self.vectors_vocab = rand_obj.uniform(lo, hi, vocab_shape)
             self.vectors_ngrams = rand_obj.uniform(lo, hi, ngrams_shape)
@@ -1412,8 +1431,13 @@ class FastTextKeyedVectors(KeyedVectors):
         rand_obj.seed(seed)
 
         new_vocab = len(self) - old_vocab_len
-        self.vectors_vocab = _pad_random(self.vectors_vocab, new_vocab, rand_obj,
-                                         normal_factor=self.position_dependent_weights)
+        self.vectors_vocab = _pad_random(
+            self.vectors_vocab,
+            new_vocab,
+            rand_obj,
+            position_dependent_weights=self.position_dependent_weights,
+            position_dependent_vector_size=self.position_dependent_vector_size,
+        )
 
     def init_post_load(self, fb_vectors):
         """Perform initialization after loading a native Facebook model.
@@ -1480,17 +1504,24 @@ class FastTextKeyedVectors(KeyedVectors):
            )
 
 
-def _pad_random(m, new_rows, rand, normal_factor=False):
+def _pad_random(m, new_rows, rand, position_dependent_weights=False, position_dependent_vector_size=0):
     """Pad a matrix with additional rows filled with random values."""
     _, columns = m.shape
-    shape = (new_rows, columns)
-    if normal_factor:
+    if position_dependent_weights:
+        shape = (new_rows, position_dependent_vector_size)
         scale = sqrt(1.0 / sqrt(3.0) / columns)
-        suffix = matutils.normal_factor(shape, rand, scale=scale)
+        suffix = matutils.normal_factor(shape, rand, scale=scale).astype(REAL)
+        if columns > position_dependent_vector_size:
+            shape = (new_rows, columns - position_dependent_vector_size)
+            low, high = -1.0 / columns, 1.0 / columns
+            suffix = np.concatenate(
+                (suffix, rand.uniform(low, high, shape).astype(REAL)),
+                axis=-1,
+            )
     else:
+        shape = (new_rows, columns)
         low, high = -1.0 / columns, 1.0 / columns
-        suffix = rand.uniform(low, high, shape)
-    suffix = suffix.astype(REAL)
+        suffix = rand.uniform(low, high, shape).astype(REAL)
     return vstack([m, suffix])
 
 
