@@ -393,13 +393,13 @@ class SparseTermSimilarityMatrix(SaveLoad):
                 Y_norm = np.multiply(Y.T.dot(matrix), Y.T).sum(axis=1).T
 
                 assert \
-                    X_norm.min() > 0.0 and Y_norm.min() >= 0.0, \
+                    X_norm.min() >= 0.0 and Y_norm.min() >= 0.0, \
                     u"sparse documents must not contain any explicit zero entries and the similarity matrix S " \
                     u"must satisfy x^T * S * x > 0 for any nonzero bag-of-words vector x."
 
                 X = np.multiply(X, 1 / np.sqrt(X_norm)).T
                 Y = np.multiply(Y, 1 / np.sqrt(Y_norm))
-                Y = np.nan_to_num(Y)  # Account for division by zero when Y_norm.min() == 0.0
+                Y = np.nan_to_num(Y)  # Account for division by zero when X_norm.min() == 0.0 or Y_norm.min() == 0.0
 
             result = X.T.dot(matrix).dot(Y)
 
@@ -422,13 +422,13 @@ class SparseTermSimilarityMatrix(SaveLoad):
                 Y_norm = Y.T.dot(matrix).multiply(Y.T).sum(axis=1).T
 
                 assert \
-                    X_norm.min() > 0.0 and Y_norm.min() >= 0.0, \
+                    X_norm.min() >= 0.0 and Y_norm.min() >= 0.0, \
                     u"sparse documents must not contain any explicit zero entries and the similarity matrix S " \
                     u"must satisfy x^T * S * x > 0 for any nonzero bag-of-words vector x."
 
                 X = X.multiply(sparse.csr_matrix(1 / np.sqrt(X_norm)))
                 Y = Y.multiply(sparse.csr_matrix(1 / np.sqrt(Y_norm)))
-                Y[Y == np.inf] = 0  # Account for division by zero when Y_norm.min() == 0.0
+                Y[Y == np.inf] = 0  # Account for division by zero when X_norm.min() == 0.0 or Y_norm.min() == 0.0
 
             result = X.T.dot(matrix).dot(Y)
 
